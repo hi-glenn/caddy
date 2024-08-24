@@ -16,14 +16,14 @@
 //
 // To use this package:
 //
-//   1. Set the AppName and AppVersion variables.
-//   2. Call LoadCaddyfile() to get the Caddyfile.
-//      Pass in the name of the server type (like "http").
-//      Make sure the server type's package is imported
-//      (import _ "github.com/coredns/caddy/caddyhttp").
-//   3. Call caddy.Start() to start Caddy. You get back
-//      an Instance, on which you can call Restart() to
-//      restart it or Stop() to stop it.
+//  1. Set the AppName and AppVersion variables.
+//  2. Call LoadCaddyfile() to get the Caddyfile.
+//     Pass in the name of the server type (like "http").
+//     Make sure the server type's package is imported
+//     (import _ "github.com/coredns/caddy/caddyhttp").
+//  3. Call caddy.Start() to start Caddy. You get back
+//     an Instance, on which you can call Restart() to
+//     restart it or Stop() to stop it.
 //
 // You should call Wait() on your instance to wait for
 // all servers to quit before your process exits.
@@ -468,6 +468,8 @@ func (i *Instance) Caddyfile() Input {
 //
 // This function blocks until all the servers are listening.
 func Start(cdyfile Input) (*Instance, error) {
+	fmt.Println("caddy Start: ", cdyfile.ServerType())
+
 	inst := &Instance{serverType: cdyfile.ServerType(), wg: new(sync.WaitGroup), Storage: make(map[interface{}]interface{})}
 	err := startWithListenerFds(cdyfile, inst, nil)
 	if err != nil {
@@ -685,6 +687,8 @@ func executeDirectives(inst *Instance, filename string,
 }
 
 func startServers(serverList []Server, inst *Instance, restartFds map[string]restartTriple) error {
+	fmt.Printf("🟡 caddy startServers() begin\n")
+
 	errChan := make(chan error, len(serverList))
 
 	// used for signaling to error logging goroutine to terminate
@@ -692,7 +696,9 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 	// used to track termination of servers
 	stopWg := &sync.WaitGroup{}
 
-	for _, s := range serverList {
+	for inx, s := range serverList {
+		fmt.Printf("🟡 caddy serverList; 😀 inx: %d;\n", inx)
+
 		var (
 			ln  net.Listener
 			pc  net.PacketConn
@@ -705,6 +711,8 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 			if gs, ok := s.(GracefulServer); ok {
 				addr := gs.Address()
 				if fdIndex, ok := loadedGob.ListenerFds["tcp"+addr]; ok {
+					fmt.Printf("🟡 caddy startServers(); TCP fd: %s;\n", "tcp"+addr)
+
 					file := os.NewFile(fdIndex, "")
 					ln, err = net.FileListener(file)
 					if err != nil {
@@ -716,6 +724,8 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 					}
 				}
 				if fdIndex, ok := loadedGob.ListenerFds["udp"+addr]; ok {
+					fmt.Printf("🟡 caddy startServers(); UDP fd: %s;\n", "udp"+addr)
+
 					file := os.NewFile(fdIndex, "")
 					pc, err = net.FilePacketConn(file)
 					if err != nil {
@@ -785,7 +795,10 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 		inst.servers = append(inst.servers, ServerListener{server: s, listener: ln, packet: pc})
 	}
 
-	for _, s := range inst.servers {
+	for inx, s := range inst.servers {
+
+		fmt.Printf("🟡 caddy startServers(); 😀 inx: %d; addr: %s; net: %s;\n", inx, s.Addr().String(), s.Addr().Network())
+
 		inst.wg.Add(2)
 		stopWg.Add(2)
 		func(s Server, ln net.Listener, pc net.PacketConn, inst *Instance) {
@@ -794,6 +807,9 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 					inst.wg.Done()
 					stopWg.Done()
 				}()
+
+				log.Println("🟡 caddy startServers() --- before Serve")
+
 				errChan <- s.Serve(ln)
 			}()
 
@@ -802,6 +818,9 @@ func startServers(serverList []Server, inst *Instance, restartFds map[string]res
 					inst.wg.Done()
 					stopWg.Done()
 				}()
+
+				log.Println("🟡 caddy startServers() --- before ServePacket")
+
 				errChan <- s.ServePacket(pc)
 			}()
 		}(s.server, s.listener, s.packet, inst)
